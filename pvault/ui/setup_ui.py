@@ -36,28 +36,39 @@ class CleanupWindow(tk.Tk):
         frm.grid(sticky="nsew")
         frm.columnconfigure(0, weight=1)
 
+        installed = setuplib.was_installed()
+
         ttk.Label(frm, text="PassVault", font=HEAD).grid(row=0, column=0, sticky="w")
-        ttk.Label(frm, text="Программа переносимая: она не установлена в систему,\n"
-                            "а просто лежит в своей папке.",
+        ttk.Label(frm, text=("Эта копия установлена установщиком."
+                             if installed else
+                             "Эта копия распакована из архива и в систему\n"
+                             "не устанавливалась."),
                   foreground=DIM, justify="left"
                   ).grid(row=1, column=0, sticky="w", pady=(0, 14))
 
         # Главное, что человек должен унести из этого окна: как удалить.
+        # Ответ зависит от того, как программа сюда попала, и соврать здесь
+        # нельзя: человек удаляет менеджер паролей.
         box = ttk.LabelFrame(frm, text="Чтобы удалить программу", padding=10)
         box.grid(row=2, column=0, sticky="ew")
         box.columnconfigure(0, weight=1)
-        ttk.Label(box, text="Закрой PassVault и удали эту папку:",
+        ttk.Label(box, text=("Открой «Параметры → Приложения → Установленные\n"
+                             "приложения», найди PassVault и нажми «Удалить»."
+                             if installed else
+                             "Закрой PassVault и удали эту папку:"),
                   justify="left").grid(row=0, column=0, sticky="w")
         ttk.Label(box, text=folder, foreground=DIM, wraplength=460,
                   justify="left").grid(row=1, column=0, sticky="w", pady=(4, 8))
         ttk.Button(box, text="Открыть папку в проводнике",
                    command=self._open_folder).grid(row=2, column=0, sticky="w")
 
-        # Предупреждение обязано быть здесь: в переносимом режиме хранилище
-        # лежит в этой же папке, и «просто удали папку» без этой строки
-        # означало бы «удали заодно все свои пароли».
+        # Предупреждение обязано быть здесь: хранилище лежит в этой же папке,
+        # и «удали папку» без этой строки означало бы «удали заодно все свои
+        # пароли». Установщик хранилище не удаляет — он удаляет только то, что
+        # сам положил, — но папку с данными человек потом снесёт руками.
         ttk.Label(frm, text="Хранилище vault.pmv и архив копий лежат в той же папке.\n"
-                            "Сначала перенеси их в другое место, если они нужны.",
+                            "Удаление программы их не тронет, но если будешь\n"
+                            "удалять папку целиком — сначала перенеси их.",
                   foreground="#b00000", justify="left", wraplength=460
                   ).grid(row=3, column=0, sticky="w", pady=(8, 0))
 

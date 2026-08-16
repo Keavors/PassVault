@@ -326,6 +326,84 @@ class PortableModeTest(unittest.TestCase):
                          paths.app_dir())
 
 
+class InstallerScriptTest(unittest.TestCase):
+    r"""Скрипт установщика тоже обязан щадить данные.
+
+    Установку ведёт Inno Setup, и он по устройству удаляет только те файлы,
+    которые сам положил. Но у него есть секция [UninstallDelete], которой
+    можно приказать снести что угодно, в том числе папку целиком. Ровно это и
+    делала версия 3.0 своим `rmdir /s /q`, стирая хранилище вместе с архивом
+    снимков. Проверяем, что такой секции в скрипте нет.
+    """
+
+    PATH = os.path.join(os.path.dirname(PACKAGE_DIR), "installer", "PassVault.iss")
+
+    def script(self):
+        if not os.path.isfile(self.PATH):
+            self.skipTest("installer/PassVault.iss отсутствует")
+        with open(self.PATH, "r", encoding="utf-8") as f:
+            return f.read()
+
+    @staticmethod
+    def code_lines(text):
+        r"""Строки скрипта без комментариев и со склеенными переносами.
+
+        Комментарии Inno начинаются с ';'. Длинные директивы переносятся
+        обратным слэшем в конце строки — без склейки проверка видела бы
+        половину директивы и ругалась на пустом месте.
+        """
+        out, pending = [], ""
+        for raw in text.splitlines():
+            stripped = raw.strip()
+            if not pending and (not stripped or stripped.startswith(";")):
+                continue
+            if stripped.endswith("\\"):
+                pending += stripped[:-1].rstrip() + " "
+                continue
+            out.append((pending + stripped).strip())
+            pending = ""
+        if pending:
+            out.append(pending.strip())
+        return out
+
+    def test_no_uninstall_delete_section(self):
+        for line in self.code_lines(self.script()):
+            self.assertNotEqual(
+                line.lower(), "[uninstalldelete]",
+                "в установщике появилась секция [UninstallDelete] — она умеет "
+                "удалять файлы, которых установщик не клал, то есть хранилище")
+
+    def test_uninstall_never_forces_a_directory_removal(self):
+        lowered = " ".join(self.code_lines(self.script())).lower()
+        for danger in ("filesandordirs", "rmdir", "/s /q", "deltree"):
+            self.assertNotIn(
+                danger, lowered,
+                "в установщике появилось «%s» — это путь к удалению папки "
+                "вместе с данными пользователя" % danger)
+
+    def test_only_the_legacy_key_is_deleted(self):
+        r"""deletekey разрешён ровно для ключа, который писали версии 2.x–3.2."""
+        for line in self.code_lines(self.script()):
+            if "deletekey" not in line.lower():
+                continue
+            self.assertIn(
+                r"Uninstall\PassVault", line,
+                "установщик удаляет из реестра что-то помимо старого ключа "
+                "PassVault: %s" % line)
+
+    def test_installs_without_administrator_rights(self):
+        """Менеджеру паролей нечего делать в системных папках."""
+        lowered = self.script().lower()
+        self.assertIn("privilegesrequired=lowest", lowered,
+                      "установщик стал просить права администратора")
+
+    def test_app_id_is_pinned(self):
+        """AppId менять нельзя: по нему Windows узнаёт обновление."""
+        self.assertIn("8A2F6C41-9D3B-4E7A-B15C-2F0E8D4A6B93", self.script(),
+                      "AppId изменился — обновление встанет второй программой "
+                      "рядом со старой вместо замены")
+
+
 class DispatcherTest(unittest.TestCase):
     """Точка входа больше не умеет превращаться в установщик."""
 

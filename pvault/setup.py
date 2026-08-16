@@ -59,6 +59,10 @@ REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\PassVault"
 
 SHORTCUT_SUFFIX = ".lnk"
 
+# Деинсталлятор, который кладёт рядом с программой Inno Setup. По его наличию
+# и отличается установленная копия от распакованной из архива.
+UNINSTALLER_NAME = "unins000.exe"
+
 
 def is_frozen():
     return getattr(sys, "frozen", False)
@@ -70,6 +74,16 @@ def self_path():
 
 def self_dir():
     return os.path.dirname(self_path())
+
+
+def was_installed():
+    """Установлена ли эта копия установщиком, или просто распакована.
+
+    Программу можно и поставить (PassVault-Setup.exe), и распаковать из
+    архива — она работает одинаково. Отличать их нужно ровно в одном месте:
+    окно удаления обязано сказать правду про то, куда нажимать.
+    """
+    return os.path.isfile(os.path.join(self_dir(), UNINSTALLER_NAME))
 
 
 # ---------------------------------------------------------------------------
