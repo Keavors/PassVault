@@ -1,76 +1,89 @@
 # -*- coding: utf-8 -*-
-"""Окна установки и удаления."""
+r"""Окно уборки следов прежних версий.
+
+Окна установки здесь больше нет, потому что установки больше нет: программа
+переносимая и работает там, где лежит. Почему так — подробно в pvault/setup.py.
+
+Осталось одно окно, и открывается оно по команде «PassVault.exe --uninstall»,
+которую прежние версии прописали в «Установленные программы». Человек нажимает
+там «Удалить», ожидая, что программа уйдёт, — и обязан получить правду: сама
+папка удаляется вручную, а окно снимает то, что программа когда-то добавила в
+систему.
+"""
 
 import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import ttk
 
 from .. import __version__, setup as setuplib
-from .widgets import DANGER, DIM, GOOD, HEAD
+from .widgets import DIM, GOOD, HEAD
 
 
-class InstallerWindow(tk.Tk):
-    """Окно установщика. Установщик только ставит — больше он ничего не делает."""
+class CleanupWindow(tk.Tk):
+    """Что прежние версии оставили в системе и как это убрать."""
 
     def __init__(self):
         super().__init__()
-        self.title("Установка PassVault %s" % __version__)
+        self.title("PassVault %s — удаление" % __version__)
         self.resizable(False, False)
-        self.result = None
+        self.removed = None
         self._set_icon()
 
-        self.v_dir = tk.StringVar(value=setuplib.default_install_dir())
-        self.v_desktop = tk.BooleanVar(value=True)
-        self.v_start_menu = tk.BooleanVar(value=True)
-        self.v_launch = tk.BooleanVar(value=True)
+        self.traces = setuplib.legacy_traces()
+        folder = setuplib.self_dir()
 
         frm = ttk.Frame(self, padding=18)
         frm.grid(sticky="nsew")
         frm.columnconfigure(0, weight=1)
 
         ttk.Label(frm, text="PassVault", font=HEAD).grid(row=0, column=0, sticky="w")
-        ttk.Label(frm, text="Офлайн-хранилище и генератор паролей, версия %s"
-                            % __version__, foreground=DIM
+        ttk.Label(frm, text="Программа переносимая: она не установлена в систему,\n"
+                            "а просто лежит в своей папке.",
+                  foreground=DIM, justify="left"
                   ).grid(row=1, column=0, sticky="w", pady=(0, 14))
 
-        existing = setuplib.installed_location()
-        if existing:
-            ttk.Label(frm, text="Обновление: " + existing, foreground=GOOD
-                      ).grid(row=2, column=0, sticky="w", pady=(0, 10))
-            self.v_dir.set(existing)
-
-        box = ttk.LabelFrame(frm, text="Куда установить", padding=10)
-        box.grid(row=3, column=0, sticky="ew")
+        # Главное, что человек должен унести из этого окна: как удалить.
+        box = ttk.LabelFrame(frm, text="Чтобы удалить программу", padding=10)
+        box.grid(row=2, column=0, sticky="ew")
         box.columnconfigure(0, weight=1)
-        ttk.Entry(box, textvariable=self.v_dir, width=58).grid(row=0, column=0, sticky="ew")
-        ttk.Button(box, text="Обзор…", command=self._browse).grid(row=0, column=1, padx=(6, 0))
+        ttk.Label(box, text="Закрой PassVault и удали эту папку:",
+                  justify="left").grid(row=0, column=0, sticky="w")
+        ttk.Label(box, text=folder, foreground=DIM, wraplength=460,
+                  justify="left").grid(row=1, column=0, sticky="w", pady=(4, 8))
+        ttk.Button(box, text="Открыть папку в проводнике",
+                   command=self._open_folder).grid(row=2, column=0, sticky="w")
 
-        # Предупреждение про системный диск. Не запрет — человек вправе
-        # поставить куда хочет, — но знать он об этом должен заранее.
-        self.drive_note = ttk.Label(frm, text="", foreground=DANGER,
-                                    justify="left", wraplength=460)
-        self.drive_note.grid(row=4, column=0, sticky="w", pady=(6, 0))
-        self.v_dir.trace_add("write", lambda *_a: self._check_drive())
-        self._check_drive()
+        # Предупреждение обязано быть здесь: в переносимом режиме хранилище
+        # лежит в этой же папке, и «просто удали папку» без этой строки
+        # означало бы «удали заодно все свои пароли».
+        ttk.Label(frm, text="Хранилище vault.pmv и архив копий лежат в той же папке.\n"
+                            "Сначала перенеси их в другое место, если они нужны.",
+                  foreground="#b00000", justify="left", wraplength=460
+                  ).grid(row=3, column=0, sticky="w", pady=(8, 0))
 
-        opts = ttk.Frame(frm)
-        opts.grid(row=5, column=0, sticky="w", pady=(10, 0))
-        ttk.Checkbutton(opts, text="Ярлык на рабочем столе",
-                        variable=self.v_desktop).grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(opts, text="Ярлык в меню «Пуск»",
-                        variable=self.v_start_menu).grid(row=1, column=0, sticky="w")
-        ttk.Checkbutton(opts, text="Запустить после установки",
-                        variable=self.v_launch).grid(row=2, column=0, sticky="w")
+        row = 4
+        if self.traces:
+            box2 = ttk.LabelFrame(frm, text="Следы прежних версий в системе",
+                                  padding=10)
+            box2.grid(row=row, column=0, sticky="ew", pady=(14, 0))
+            box2.columnconfigure(0, weight=1)
+            ttk.Label(box2, text="Версии 2.x–3.2 прописывали программу в систему.\n"
+                                 "Эта версия так не делает; старое можно убрать:",
+                      justify="left").grid(row=0, column=0, sticky="w")
+            ttk.Label(box2, text="\n".join("    " + t for t in self.traces),
+                      foreground=DIM, justify="left", wraplength=440
+                      ).grid(row=1, column=0, sticky="w", pady=(6, 8))
+            self.btn_clean = ttk.Button(box2, text="Убрать следы",
+                                        command=self._clean)
+            self.btn_clean.grid(row=2, column=0, sticky="w")
+            row += 1
 
-        self.status = ttk.Label(frm, text="", foreground=DIM, wraplength=460,
+        self.status = ttk.Label(frm, text="", foreground=GOOD, wraplength=460,
                                 justify="left")
-        self.status.grid(row=6, column=0, sticky="w", pady=(10, 0))
+        self.status.grid(row=row, column=0, sticky="w", pady=(12, 0))
 
-        bar = ttk.Frame(frm)
-        bar.grid(row=7, column=0, sticky="ew", pady=(14, 0))
-        self.btn_install = ttk.Button(bar, text="Установить", command=self._install)
-        self.btn_install.pack(side="left")
-        ttk.Button(bar, text="Выход", command=self.destroy).pack(side="right")
+        ttk.Button(frm, text="Закрыть", command=self.destroy
+                   ).grid(row=row + 1, column=0, sticky="e", pady=(14, 0))
 
         self.update_idletasks()
         self._center()
@@ -89,143 +102,29 @@ class InstallerWindow(tk.Tk):
         y = (self.winfo_screenheight() - h) // 3
         self.geometry("+%d+%d" % (max(0, x), max(0, y)))
 
-    def _browse(self):
-        d = filedialog.askdirectory(title="Куда установить PassVault",
-                                    initialdir=self.v_dir.get(), parent=self)
-        if d:
-            self.v_dir.set(os.path.join(d, "PassVault")
-                           if os.path.basename(d).lower() != "passvault" else d)
-
-    def _check_drive(self):
-        if setuplib.is_on_system_drive(self.v_dir.get()):
-            self.drive_note.config(
-                text="Это системный диск (%s). Хранилище окажется на нём же —\n"
-                     "выбери другой диск, если держишь данные отдельно."
-                     % setuplib.system_drive())
-        else:
-            self.drive_note.config(text="")
-
-    def _say(self, text):
-        self.status.config(text=text)
-        self.update_idletasks()
-
-    def _install(self):
-        self.btn_install.state(["disabled"])
+    def _open_folder(self):
         try:
-            exe = setuplib.install(self.v_dir.get(),
-                                   desktop_shortcut=self.v_desktop.get(),
-                                   start_menu=self.v_start_menu.get(),
-                                   progress=self._say)
-        except OSError as e:
-            self.btn_install.state(["!disabled"])
-            messagebox.showerror("Установка", "Не удалось установить:\n%s" % e,
-                                 parent=self)
-            return
+            os.startfile(setuplib.self_dir())     # noqa: S606 — только Windows
+        except (OSError, AttributeError):
+            pass
 
-        self.status.config(text="Установлено: " + exe, foreground=GOOD)
-        if self.v_launch.get():
-            # Открываем установленную программу через оболочку (ShellExecute),
-            # как будто по ней кликнули в проводнике. Раньше здесь стоял
-            # subprocess.Popen([exe]) — прямой запуск только что записанного
-            # файла дочерним процессом. Для поведенческого монитора Windows
-            # Defender это в точности почерк дроппера: неподписанная программа
-            # копирует exe в другую папку и тут же исполняет его как своего
-            # потомка. Именно эта связка (копирование + запись в реестр +
-            # запуск записанного файла) и ловится как DefenseEvasion. Через
-            # os.startfile запуск идёт штатным путём оболочки, а не потомком
-            # установщика, и «дропнул и запустил» из картины уходит.
-            try:
-                os.startfile(exe)
-            except OSError:
-                pass
-        self.result = "installed"
-        self.destroy()
+    def _clean(self):
+        self.removed = setuplib.remove_legacy_traces()
+        self.btn_clean.state(["disabled"])
+        self.status.config(
+            text="Убрано: %d. Программа больше нигде в системе не значится."
+                 % len(self.removed))
 
 
-class UninstallWindow(tk.Tk):
-    """Подтверждение удаления.
+def run_cleanup(quiet=False):
+    """Показывает окно удаления. quiet — снять следы без окна.
 
-    Окно обязано говорить правду про судьбу данных. Прежняя версия писала
-    «Хранилище и резервные копии останутся» безусловно — и это было ложью
-    ровно в том случае, который встречается чаще всего: программа установлена
-    в ту же папку, где лежит хранилище.
+    Тихий режим вызывается из QuietUninstallString, который прежние версии
+    прописали в реестр: там окно показывать не принято.
     """
-
-    def __init__(self):
-        super().__init__()
-        self.title("Удаление PassVault")
-        self.resizable(False, False)
-        self.confirmed = False
-        self.kept = []
-
-        target = setuplib.self_dir()
-        vaults = setuplib.vault_files_in(target)
-
-        frm = ttk.Frame(self, padding=18)
-        frm.grid(sticky="nsew")
-
-        ttk.Label(frm, text="Удалить PassVault?", font=("Segoe UI", 14, "bold")
-                  ).grid(row=0, column=0, sticky="w")
-        ttk.Label(frm, text=target, foreground=DIM, justify="left", wraplength=460
-                  ).grid(row=1, column=0, sticky="w", pady=(8, 0))
-
-        # Единственный вопрос, который тут важен, — что будет с паролями.
-        if vaults:
-            ttk.Label(frm, text="В этой папке лежит твоё хранилище:",
-                      foreground=DANGER, font=("Segoe UI", 10, "bold")
-                      ).grid(row=2, column=0, sticky="w", pady=(12, 2))
-            ttk.Label(frm, text="\n".join("    " + n for n in vaults),
-                      foreground=DANGER, justify="left", wraplength=460
-                      ).grid(row=3, column=0, sticky="w")
-            ttk.Label(frm, text="Оно НЕ будет удалено. Удаляется только сама\n"
-                                "программа; папка останется вместе с данными.",
-                      foreground=GOOD, justify="left"
-                      ).grid(row=4, column=0, sticky="w", pady=(6, 0))
-        else:
-            ttk.Label(frm, text="Хранилище и резервные копии останутся:\n"
-                                "они лежат рядом с файлом vault.pmv, а не здесь.",
-                      foreground=GOOD, justify="left"
-                      ).grid(row=2, column=0, sticky="w", pady=(12, 0))
-
-        self.status = ttk.Label(frm, text="", foreground=DIM, wraplength=460,
-                                justify="left")
-        self.status.grid(row=5, column=0, sticky="w", pady=(12, 0))
-
-        bar = ttk.Frame(frm)
-        bar.grid(row=6, column=0, sticky="e", pady=(14, 0))
-        ttk.Button(bar, text="Удалить", command=self._go).pack(side="left", padx=4)
-        ttk.Button(bar, text="Отмена", command=self.destroy).pack(side="left")
-
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - self.winfo_width()) // 2
-        y = (self.winfo_screenheight() - self.winfo_height()) // 3
-        self.geometry("+%d+%d" % (max(0, x), max(0, y)))
-
-    def _go(self):
-        def say(t):
-            self.status.config(text=t)
-            self.update_idletasks()
-        target, self.kept = setuplib.uninstall(progress=say)
-        self.confirmed = True
-        if self.kept:
-            messagebox.showinfo(
-                "Удаление",
-                "Программа удалена.\n\nПапка оставлена — в ней твои файлы:\n%s\n\n%s"
-                % ("\n".join("    " + n for n in self.kept), target),
-                parent=self)
-        self.destroy()
-
-
-def run_installer():
-    win = InstallerWindow()
-    win.mainloop()
-    return win.result
-
-
-def run_uninstaller(quiet=False):
     if quiet:
-        setuplib.uninstall()
+        setuplib.remove_legacy_traces()
         return True
-    win = UninstallWindow()
+    win = CleanupWindow()
     win.mainloop()
-    return win.confirmed
+    return win.removed is not None

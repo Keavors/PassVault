@@ -117,16 +117,13 @@ def main(argv):
             root.destroy()
         return 0 if ok else 1
 
+    # Программа переносимая и в систему не ставится, поэтому ключа --install
+    # больше нет. Ключ --uninstall остался: его прописали в «Установленные
+    # программы» версии 2.x–3.2, и оттуда он будет приходить ещё долго. Теперь
+    # он открывает окно уборки, а не удаления файлов.
     if "--uninstall" in argv:
-        from pvault.ui.setup_ui import run_uninstaller
-        run_uninstaller(quiet="--quiet" in argv)
-        return 0
-
-    # Установщик и приложение — один и тот же файл, различаются только именем:
-    # PassVault-Setup.exe ставит, PassVault.exe открывает хранилище.
-    if "--install" in argv or setuplib.looks_like_setup_exe():
-        from pvault.ui.setup_ui import run_installer
-        run_installer()
+        from pvault.ui.setup_ui import run_cleanup
+        run_cleanup(quiet="--quiet" in argv)
         return 0
 
     vault_path = next((a for a in argv[1:] if not a.startswith("-")), None)

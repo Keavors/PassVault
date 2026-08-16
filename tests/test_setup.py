@@ -1,308 +1,350 @@
 # -*- coding: utf-8 -*-
-r"""Тесты установки и удаления.
+r"""Тесты переносимого режима и уборки следов прежних версий.
 
-Ярлыки и реестр здесь выключены: автотест не имеет права сорить в меню «Пуск»
-и в профиле пользователя — и, что важнее, не имеет права снести НАСТОЯЩИЙ
-ярлык и НАСТОЯЩУЮ запись в реестре у того, кто гоняет тесты на своей машине.
+Главное здесь — NoDropperBehaviourTest. Он не проверяет правильность работы,
+он ЗАПРЕЩАЕТ программе делать то, из-за чего Windows Defender блокировал
+установку версии 3.1 с вердиктом Behavior:Win32/DefenseEvasion.A!ml.
 
-Главное здесь — UninstallKeepsUserDataTest. Раньше на этом месте лежала
-проверка
+Вердикт был ложным: это эвристика, а не сигнатура (суффикс !ml). Те же байты
+под именем PassVault.exe проверку проходили, а под именем
+PassVault-Setup-3.1.exe удалялись с диска — отличалось поведение, не
+содержимое. Срабатывала связка: неподписанная программа с нулевой репутацией
+копирует себя в другую папку, пишет ключ в CurrentVersion\Uninstall, создаёт
+ярлыки, запускает записанный файл, а при удалении стирает себя скрытым
+процессом cmd.
 
-    data = os.path.normcase(setuplib.data_dir_note())   # "рядом с файлом хранилища"
-    install = os.path.normcase(setuplib.default_install_dir())
-    self.assertFalse(data.startswith(install))
+Версия 3.2 убрала два самых заметных звена и всё равно ловилась на чужой
+машине. Версия 3.3 убрала саму установку: программа переносимая. Спорить с
+антивирусом бессмысленно, поэтому проверяем механикой — каждое из звеньев
+запрещено отдельным тестом, и вернуть его молча не получится.
 
-то есть русская фраза сравнивалась с путём. Она проходила всегда и не защищала
-ни от чего, при том что называлась «удаление не должно задевать хранилище».
-А удаление в это время выполняло `rmdir /s /q` по папке программы и вместе с
-ней стирало vault.pmv, откат и весь архив снимков.
+Тесты ниже намеренно смотрят на ВЕСЬ пакет pvault, а не на один модуль:
+вернуть subprocess можно в любой файл, а последствие будет одно.
 """
 
+import ast
 import os
+import re
 import shutil
-import sys
 import tempfile
 import unittest
 
 from pvault import setup as setuplib
 
+PACKAGE_DIR = os.path.dirname(os.path.abspath(setuplib.__file__))
 
-class InstallTest(unittest.TestCase):
-    def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="pvinst-")
-        self.fake_exe = os.path.join(self.root, "PassVault-Setup-3.0.exe")
-        with open(self.fake_exe, "wb") as f:
-            f.write(b"MZ" + b"\0" * 4096)
 
-        self._real_self_path = setuplib.self_path
-        self._real_is_frozen = setuplib.is_frozen
-        setuplib.self_path = lambda: self.fake_exe
-        setuplib.is_frozen = lambda: True
+def shipped_modules():
+    """Все .py пакета pvault — то, что реально попадает пользователю в exe."""
+    out = []
+    for root, dirs, files in os.walk(PACKAGE_DIR):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in sorted(files):
+            if name.endswith(".py"):
+                out.append(os.path.join(root, name))
+    return out
 
-    def tearDown(self):
-        setuplib.self_path = self._real_self_path
-        setuplib.is_frozen = self._real_is_frozen
-        shutil.rmtree(self.root, ignore_errors=True)
 
-    def target(self):
-        return os.path.join(self.root, "installed")
+def parse(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return ast.parse(f.read(), filename=path)
 
-    def do_install(self):
-        return setuplib.install(self.target(), desktop_shortcut=False,
-                                start_menu=False, register=False)
 
-    # ------------------------------------------------------------------
-    def test_reinstall_over_existing_works(self):
-        self.do_install()
-        with open(self.fake_exe, "wb") as f:
-            f.write(b"MZ" + b"\1" * 4096)          # «новая версия»
-        exe = self.do_install()
-        with open(exe, "rb") as f:
-            self.assertEqual(f.read()[2:6], b"\1\1\1\1")
+def live_strings(tree):
+    """Строковые литералы, попадающие в исполняемый код.
 
-    def test_refuses_to_install_onto_itself(self):
-        exe = self.do_install()
-        setuplib.self_path = lambda: exe
-        with self.assertRaises(OSError):
-            self.do_install()
+    Docstring'и исключаются: в них подробно написано, почему powershell и
+    rmdir отсюда убраны, и проверка по тексту файла падала бы на собственной
+    документации. Комментарии в дерево не попадают вовсе.
+    """
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.ClassDef)):
+            body = getattr(node, "body", None)
+            if body and isinstance(body[0], ast.Expr) \
+                    and isinstance(body[0].value, ast.Constant) \
+                    and isinstance(body[0].value.value, str):
+                docstrings.add(id(body[0].value))
+    return [n.value for n in ast.walk(tree)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in docstrings]
 
-    def test_name_decides_installer_or_app(self):
-        """PassVault-Setup.exe ставит, PassVault.exe открывает хранилище."""
-        self.assertTrue(setuplib.looks_like_setup_exe())
-        setuplib.self_path = lambda: os.path.join(self.root, "PassVault.exe")
-        self.assertFalse(setuplib.looks_like_setup_exe())
 
-    def test_running_from_sources_is_never_the_installer(self):
-        """`python passvault.py` обязан открыть хранилище, а не окно установки.
+def called_attrs(tree, module_name):
+    """Имена методов, вызванных как module_name.что_то(...)."""
+    return [node.func.attr for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == module_name]
 
-        Из исходников self_path() отдаёт путь к самому модулю — pvault\\setup.py.
-        Слово «setup» находилось в его имени, и программа из исходников
-        запускала установщик. То есть не запускалась вовсе.
+
+# Как в коде выглядит путь к самой программе.
+SELF_REFS = ("sys.executable", "self_path", "self_dir", "__file__")
+
+
+def self_referring_names(tree):
+    r"""Локальные имена, в которые положили путь к самой программе.
+
+    Без этого проверка на самокопирование дырявая, и дыра не теоретическая:
+    установщик версии 3.2 писал ровно так —
+
+        source = self_path()
+        ...
+        shutil.copy2(source, tmp)
+
+    Проверка смотрела на аргумент `source`, слов self_path там не было, и
+    самокопирование проходило мимо. Прослеживаем присваивания на один шаг.
+    """
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        value = ast.unparse(node.value)
+        if not any(ref in value for ref in SELF_REFS):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, ast.Tuple):
+                names.update(el.id for el in target.elts
+                             if isinstance(el, ast.Name))
+    return names
+
+
+def points_at_self(source, tainted_names):
+    """Указывает ли выражение на исполняемый файл самой программы."""
+    if any(ref in source for ref in SELF_REFS):
+        return True
+    return any(re.search(r"\b%s\b" % re.escape(name), source)
+               for name in tainted_names)
+
+
+class NoDropperBehaviourTest(unittest.TestCase):
+    """Программа не имеет права вести себя как загрузчик вредоноса."""
+
+    def test_nothing_in_the_package_spawns_a_process(self):
+        r"""Ни один модуль не запускает внешних программ.
+
+        Раньше отсюда запускались powershell (ярлыки) и cmd (самоудаление).
+        Порождение процессов — несущий признак дроппера, и менеджеру паролей
+        оно не нужно ни для чего: всё, что требуется, делается своими руками.
         """
-        setuplib.is_frozen = lambda: False
-        setuplib.self_path = self._real_self_path      # настоящий pvault/setup.py
-        self.assertIn("setup", os.path.basename(setuplib.self_path()).lower(),
-                      "проверка потеряла смысл: модуль переименовали")
-        self.assertFalse(setuplib.looks_like_setup_exe())
+        for path in shipped_modules():
+            tree = parse(path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [a.name.split(".")[0] for a in node.names]
+                    self.assertNotIn(
+                        "subprocess", names,
+                        "%s импортирует subprocess — Defender метит запуск "
+                        "внешних процессов как поведение дроппера"
+                        % os.path.basename(path))
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    self.assertNotEqual(
+                        node.module.split(".")[0], "subprocess",
+                        "%s импортирует subprocess" % os.path.basename(path))
 
-    def test_default_dir_is_per_user(self):
-        d = setuplib.default_install_dir()
-        self.assertIn("PassVault", d)
-        self.assertNotIn("Program Files", d)
+    def test_no_module_mentions_a_shell(self):
+        """Ни powershell, ни cmd, ни WScript.Shell в исполняемом коде."""
+        forbidden = ("powershell", "pwsh", "wscript.shell", "cmd.exe",
+                     "rmdir", "/s /q")
+        for path in shipped_modules():
+            strings = " ".join(live_strings(parse(path))).lower()
+            for word in forbidden:
+                self.assertNotIn(
+                    word, strings,
+                    "%s снова содержит «%s» в рабочем коде"
+                    % (os.path.basename(path), word))
 
-    @unittest.skipUnless(sys.platform == "win32", "только Windows")
-    def test_default_dir_follows_the_drive_of_the_setup_exe(self):
-        """Запущен с D: — предлагаем D:, а не системный диск."""
-        setuplib.self_path = lambda: r"D:\Downloads\PassVault-Setup-3.0.exe"
-        self.assertEqual(setuplib.default_install_dir().upper(),
-                         os.path.join("D:\\", "PassVault").upper())
+    def test_nothing_writes_to_the_registry(self):
+        r"""В реестр программа больше не пишет — только читает и удаляет своё.
+
+        Запись в CurrentVersion\Uninstall — это закрепление в системе
+        (persistence). Само по себе законно, но в связке с копированием себя
+        именно оно поднимало оценку до DefenseEvasion. Переносимой программе
+        закрепляться незачем.
+        """
+        writes = ("SetValueEx", "SetValue", "CreateKey", "CreateKeyEx")
+        for path in shipped_modules():
+            used = called_attrs(parse(path), "winreg")
+            for name in writes:
+                self.assertNotIn(
+                    name, used,
+                    "%s пишет в реестр через winreg.%s — программа снова "
+                    "закрепляется в системе" % (os.path.basename(path), name))
+
+    def test_the_program_never_copies_itself(self):
+        """Самокопирование — первое звено связки «дропнул и запустил».
+
+        Запрещено копирование именно СЕБЯ, а не файлов вообще: storage.py
+        копирует хранилище, чтобы сделать откат vault.pmv.prev, и это ровно
+        то, ради чего программа существует. Ловим источник копирования —
+        sys.executable и self_path(), то есть собственный exe.
+        """
+        for path in shipped_modules():
+            tree = parse(path)
+            tainted = self_referring_names(tree)
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and isinstance(node.func.value, ast.Name)
+                        and node.func.value.id == "shutil"
+                        and node.func.attr in ("copy", "copy2", "copyfile",
+                                               "copytree")
+                        and node.args):
+                    continue
+                source = ast.unparse(node.args[0])
+                self.assertFalse(
+                    points_at_self(source, tainted),
+                    "%s копирует саму программу — shutil.%s(%s, …). Это "
+                    "первое звено связки, которую Defender метит как дроппер"
+                    % (os.path.basename(path), node.func.attr, source))
+
+    def test_installer_entry_points_are_gone(self):
+        """Установки нет, и функций установки быть не должно.
+
+        Проверка от возврата по невнимательности: пока в модуле нет install()
+        и looks_like_setup_exe(), нечему и сработать.
+        """
+        for name in ("install", "uninstall", "looks_like_setup_exe",
+                     "removal_command", "remove_program_files",
+                     "default_install_dir"):
+            self.assertFalse(
+                hasattr(setuplib, name),
+                "в pvault/setup.py вернулась функция %s() — вместе с ней "
+                "вернётся и поведение, которое блокировал Defender" % name)
+
+    def test_no_com_shortcut_machinery(self):
+        """Ручные вызовы COM через таблицу методов убраны вместе с ярлыками.
+
+        Код, который сам разбирает vtable и дёргает методы по номеру,
+        выглядит необычно для любого статического анализатора. Создавать
+        ярлыки переносимой программе не нужно — это делает проводник.
+        """
+        strings = " ".join(live_strings(parse(setuplib.__file__))).lower()
+        self.assertNotIn("{00021401", strings,
+                         "вернулся CLSID_ShellLink — вернулась COM-машинерия")
 
 
-class NoSuspiciousBehaviourTest(unittest.TestCase):
-    r"""Установщик не должен вести себя как вредоносный загрузчик.
+class CleanupNeverTouchesDataTest(unittest.TestCase):
+    r"""Уборка следов не имеет права тронуть ни хранилище, ни программу.
 
-    Windows Defender заблокировал установку версии 3.1 с вердиктом
-    Behavior:Win32/DefenseEvasion.A!ml и удалил файл. Вердикт был ложным —
-    это эвристика (суффикс !ml), а не сигнатура: тот же файл под именем
-    PassVault.exe проверку содержимого проходил, а под именем
-    PassVault-Setup-3.1.exe удалялся. Байты одни и те же, отличалось поведение.
+    История, ради которой этот тест существует: удаление версии 3.0 выполняло
+    rmdir /s /q по папке программы. Переносимый режим кладёт vault.pmv ровно
+    рядом с exe, поэтому удаление стирало хранилище, откат и весь архив
+    снимков — а окно в этот момент писало «Хранилище и резервные копии
+    останутся».
 
-    Срабатывала связка: неподписанная программа с нулевой репутацией копирует
-    себя в другую папку, тут же запускает powershell с готовым скриптом, пишет
-    ключ в CurrentVersion\Uninstall и стартует записанный файл. Самое приметное
-    здесь — вызов powershell, и он убран: ярлык делается через COM внутри
-    своего процесса.
-
-    Спорить с антивирусом бессмысленно, поэтому проверяем механикой: код
-    установки не имеет права порождать powershell.
+    Теперь уборка умеет удалять только ярлыки. Проверяем это поведением, а не
+    обещанием: кладём рядом всё, что можно потерять, и смотрим, что уцелело.
     """
 
-    @staticmethod
-    def _live_strings(module):
-        """Строковые литералы модуля без комментариев и docstring'ов.
-
-        Проверять по тексту файла нельзя: слово powershell есть в пояснении,
-        почему его убрали, и проверка падала бы на собственной документации.
-        Разбираем синтаксическое дерево и берём только те строки, которые
-        действительно попадают в исполняемый код.
-        """
-        import ast
-        import inspect
-        tree = ast.parse(inspect.getsource(module))
-        docstrings = set()
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
-                                 ast.ClassDef)):
-                body = getattr(node, "body", None)
-                if body and isinstance(body[0], ast.Expr) \
-                        and isinstance(body[0].value, ast.Constant) \
-                        and isinstance(body[0].value.value, str):
-                    docstrings.add(id(body[0].value))
-        return [n.value for n in ast.walk(tree)
-                if isinstance(n, ast.Constant) and isinstance(n.value, str)
-                and id(n) not in docstrings]
-
-    def test_installer_never_spawns_powershell(self):
-        strings = " ".join(self._live_strings(setuplib)).lower()
-        for word in ("powershell", "pwsh", "wscript.shell"):
-            self.assertNotIn(word, strings,
-                             "установщик снова запускает %s — Defender "
-                             "заблокирует установку" % word)
-
-    def test_installer_does_not_spawn_the_installed_program(self):
-        r"""Установщик не запускает записанный exe дочерним процессом.
-
-        Дроппер копирует исполняемый файл и тут же исполняет его как своего
-        потомка. Именно эту связку — копирование в другую папку, запись ключа
-        в CurrentVersion\Uninstall, ярлык и запуск записанного файла —
-        поведенческий монитор Defender метит как DefenseEvasion (в отчёте
-        видны два процесса, родитель и потомок). Программу после установки
-        открываем через оболочку, os.startfile, а не subprocess: тогда в
-        дереве процессов установщик её родителем не значится.
-        """
-        import ast
-        import inspect
-        from pvault.ui import setup_ui
-        tree = ast.parse(inspect.getsource(setup_ui))
-        spawned = [node.func.attr for node in ast.walk(tree)
-                   if isinstance(node, ast.Call)
-                   and isinstance(node.func, ast.Attribute)
-                   and isinstance(node.func.value, ast.Name)
-                   and node.func.value.id == "subprocess"]
-        self.assertEqual(
-            spawned, [],
-            "установщик снова порождает процесс через subprocess — Defender "
-            "метит связку «скопировал exe и запустил» как дроппер: %s" % spawned)
-
-    def test_shortcut_failure_never_breaks_installation(self):
-        """Ярлык — удобство, а не смысл установки.
-
-        Проверять, что ярлык РЕАЛЬНО создался, здесь нельзя: антивирус в
-        режиме проверки перехватывает запись .lnk и возвращает оболочке отказ,
-        причём непредсказуемо — на одном и том же коде вызов то проходит, то
-        нет. Такой тест валил бы сборку по погоде. Проверяем то, что зависит
-        от нас: функция обязана вернуть True или False и не бросить исключение.
-        """
-        if os.name != "nt":
-            self.skipTest("только Windows")
-        root = tempfile.mkdtemp(prefix="pvlnk-")
-        try:
-            target = os.path.join(root, "PassVault.exe")
-            with open(target, "wb") as f:
-                f.write(b"MZ" + b"\0" * 512)
-            result = setuplib._make_shortcut(
-                os.path.join(root, "menu", "PassVault.lnk"), target, root, "описание")
-            self.assertIn(result, (True, False))
-        finally:
-            shutil.rmtree(root, ignore_errors=True)
-
-
-class UninstallKeepsUserDataTest(unittest.TestCase):
-    r"""Удаление программы не имеет права тронуть хранилище.
-
-    Случай не выдуманный: переносимый режим кладёт vault.pmv рядом с exe, а
-    установщик по умолчанию предлагает тот диск, с которого запущен. Папка
-    D:\PassVault с программой и хранилищем внутри — штатный результат, а не
-    экзотика.
-    """
-
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="pvuninst-")
-        self.installed = os.path.join(self.root, "PassVault")
-        os.makedirs(self.installed)
+        self.root = tempfile.mkdtemp(prefix="pvclean-")
+        self.folder = os.path.join(self.root, "PassVault")
+        os.makedirs(self.folder)
 
-        self.exe = os.path.join(self.installed, setuplib.EXE_NAME)
-        with open(self.exe, "wb") as f:
-            f.write(b"MZ" + b"\0" * 1024)
+        self.files = []
+        for name in ("PassVault.exe", "vault.pmv", "vault.pmv.prev",
+                     "config.json", "важные заметки.txt"):
+            path = os.path.join(self.folder, name)
+            with open(path, "wb") as f:
+                f.write(b"PMVAULT1" + b"\0" * 64)
+            self.files.append(path)
 
-        self._real_self_path = setuplib.self_path
-        setuplib.self_path = lambda: self.exe
-
-    def tearDown(self):
-        setuplib.self_path = self._real_self_path
-        shutil.rmtree(self.root, ignore_errors=True)
-
-    def put(self, name, content=b"PMVAULT1data"):
-        path = os.path.join(self.installed, name)
-        with open(path, "wb") as f:
-            f.write(content)
-        return path
-
-    def do_uninstall(self):
-        return setuplib.uninstall(shortcuts=False, register=False, defer=False)
-
-    # ------------------------------------------------------------------
-    def test_vault_next_to_the_program_survives(self):
-        vault = self.put("vault.pmv")
-        prev = self.put("vault.pmv.prev")
-        backups = os.path.join(self.installed, "vault_backups")
-        os.makedirs(backups)
-        snap = os.path.join(backups, "snap-20260808-090545.pmv")
+        self.backups = os.path.join(self.folder, "vault_backups")
+        os.makedirs(self.backups)
+        snap = os.path.join(self.backups, "snap-20260808-090545.pmv")
         with open(snap, "wb") as f:
             f.write(b"PMVAULT1snapshot")
+        self.files.append(snap)
 
-        _target, kept = self.do_uninstall()
+        # Настоящий ярлык трогать нельзя: тесты гоняются на живой машине.
+        self.link = os.path.join(self.root, "PassVault.lnk")
+        with open(self.link, "wb") as f:
+            f.write(b"L\0\0\0")
+
+        self._real_shortcuts = setuplib.legacy_shortcuts
+        setuplib.legacy_shortcuts = lambda: [self.link]
+
+    def tearDown(self):
+        setuplib.legacy_shortcuts = self._real_shortcuts
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_only_the_shortcut_disappears(self):
+        removed = setuplib.remove_legacy_traces()
+
+        self.assertIn(self.link, removed)
+        self.assertFalse(os.path.exists(self.link), "ярлык должен был уйти")
+        for path in self.files:
+            self.assertTrue(os.path.isfile(path),
+                            "уборка удалила %s" % os.path.basename(path))
+        self.assertTrue(os.path.isdir(self.folder), "папка программы снесена")
+        self.assertTrue(os.path.isdir(self.backups), "архив снимков снесён")
+
+    def test_a_non_shortcut_in_the_list_is_refused(self):
+        """Последний рубеж: даже если список ярлыков подсунет чужой файл.
+
+        Проверка расширения стоит прямо перед удалением именно на этот
+        случай — ошибка в legacy_shortcuts() не должна стоить хранилища.
+        """
+        vault = os.path.join(self.folder, "vault.pmv")
+        setuplib.legacy_shortcuts = lambda: [vault]
+
+        removed = setuplib.remove_legacy_traces()
 
         self.assertTrue(os.path.isfile(vault), "ХРАНИЛИЩЕ УДАЛЕНО")
-        self.assertTrue(os.path.isfile(prev), "откат удалён")
-        self.assertTrue(os.path.isfile(snap), "снимок из архива удалён")
-        self.assertFalse(os.path.isfile(self.exe), "сама программа должна удалиться")
-        self.assertTrue(os.path.isdir(self.installed),
-                        "папку с данными сносить нельзя")
-        self.assertIn("vault.pmv", kept)
-        self.assertIn("vault_backups", kept)
+        self.assertNotIn(vault, removed)
 
-    def test_clean_folder_is_removed_completely(self):
-        """Если рядом с программой ничего чужого нет — папка уходит целиком."""
-        self.put("config.json", b"{}")               # свой файл, его удаляем
-        _target, kept = self.do_uninstall()
-        self.assertEqual(kept, [])
-        self.assertFalse(os.path.isdir(self.installed))
+    def test_cleanup_is_safe_to_run_twice(self):
+        setuplib.remove_legacy_traces()
+        setuplib.remove_legacy_traces()          # не должно ничего сломать
+        self.assertFalse(os.path.exists(self.link))
 
-    def test_any_foreign_file_stops_folder_removal(self):
-        """Последний рубеж: чужой файл любого вида отменяет снос папки."""
-        self.put("важные заметки.txt", b"text")
-        _target, kept = self.do_uninstall()
-        self.assertEqual(kept, ["важные заметки.txt"])
-        self.assertTrue(os.path.isdir(self.installed))
-        self.assertFalse(os.path.isfile(self.exe))
 
-    def test_vault_files_are_recognised(self):
-        for name in ("vault.pmv", "vault.pmv.prev", "vault.pmv.lock",
-                     "vault.pmv.att", "vault.pmv.tmp", "vault.pmv.bak",
-                     "рабочий.pmv"):
-            self.put(name)
-        os.makedirs(os.path.join(self.installed, "vault_backups"))
-        found = setuplib.vault_files_in(self.installed)
-        self.assertIn("vault.pmv", found)
-        self.assertIn("рабочий.pmv", found)
-        self.assertIn("vault_backups", found)
-        self.assertNotIn(setuplib.EXE_NAME, found)
+class PortableModeTest(unittest.TestCase):
+    """Программа работает там, где лежит."""
 
-    @unittest.skipUnless(sys.platform == "win32", "только Windows")
-    def test_removal_command_can_not_wipe_a_folder(self):
-        r"""Отложенное удаление собирается отдельной строкой для cmd, и её
-        никакой другой тест не видит. Здесь проверяется именно она.
+    def test_traces_are_reported_as_text(self):
+        real = setuplib.legacy_shortcuts
+        setuplib.legacy_shortcuts = lambda: [r"C:\fake\PassVault.lnk"]
+        try:
+            traces = setuplib.legacy_traces()
+        finally:
+            setuplib.legacy_shortcuts = real
+        self.assertIn(r"C:\fake\PassVault.lnk", traces)
 
-        `rmdir /s /q` вернуть сюда очень легко — «так короче», — и цена этой
-        правке ровно одна: хранилище пользователя.
+    def test_self_dir_is_where_the_program_lives(self):
+        self.assertTrue(os.path.isdir(setuplib.self_dir()))
+
+    def test_vault_defaults_to_the_program_folder(self):
+        """Переносимость держится на этом: хранилище ищется рядом с программой."""
+        from pvault import paths
+        self.assertEqual(os.path.dirname(paths.default_vault_path()),
+                         paths.app_dir())
+
+
+class DispatcherTest(unittest.TestCase):
+    """Точка входа больше не умеет превращаться в установщик."""
+
+    @staticmethod
+    def _entry_tree():
+        path = os.path.join(os.path.dirname(PACKAGE_DIR), "passvault.py")
+        with open(path, "r", encoding="utf-8") as f:
+            return ast.parse(f.read(), filename=path)
+
+    def test_no_install_switch(self):
+        strings = " ".join(live_strings(self._entry_tree()))
+        self.assertNotIn("--install", strings,
+                         "вернулся ключ --install: установка запрещена")
+
+    def test_uninstall_switch_survives_for_old_registry_entries(self):
+        r"""«PassVault.exe --uninstall» прописан в реестре у прежних версий.
+
+        Убрать этот ключ нельзя: кнопка «Удалить» в «Параметрах» Windows будет
+        звать его ещё долго, и она обязана открывать окно, а не молчать.
         """
-        cmd = setuplib.removal_command(r"D:\PassVault")
-
-        self.assertNotIn("/s", cmd.lower(),
-                         "rmdir /s снесёт папку вместе с хранилищем")
-        self.assertNotIn("rd ", cmd.lower())
-        self.assertIn(r'rmdir "D:\PassVault"', cmd)
-
-        # Удаляются только поимённо перечисленные файлы программы.
-        deleted = [part.strip() for part in cmd.split("&")
-                   if part.strip().lower().startswith("del ")]
-        self.assertEqual(len(deleted), len(setuplib.PROGRAM_FILES))
-        for name in setuplib.PROGRAM_FILES:
-            self.assertTrue(
-                any(name in part for part in deleted),
-                "файл программы %s не удаляется" % name)
-        for part in deleted:
-            self.assertTrue(
-                any(name in part for name in setuplib.PROGRAM_FILES),
-                "удаляется что-то, чего программа не клала: %s" % part)
+        strings = " ".join(live_strings(self._entry_tree()))
+        self.assertIn("--uninstall", strings)

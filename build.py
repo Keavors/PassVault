@@ -1,17 +1,30 @@
 # -*- coding: utf-8 -*-
-r"""Сборка PassVault в один exe.
+r"""Сборка PassVault.
 
     python build.py
 
 Что получается в dist\:
 
-    PassVault-Setup-3.0.exe   установщик — его и носи на другие ПК
-    PassVault.exe             тот же файл под именем приложения (переносимый
-                              режим: положи рядом с vault.pmv и запускай)
+    PassVault\                папка с программой: PassVault.exe и _internal\
+    PassVault-3.3-windows.zip та же папка архивом — её и носи на другие ПК
 
-Установщик и приложение — один и тот же бинарник. Прошлая версия носила рядом
-ещё и uninstall.exe на 28 МБ; здесь удаление живёт в том же файле и
-регистрируется как «PassVault.exe --uninstall».
+Установщика нет. Программа переносимая: распаковал папку куда угодно, запустил
+PassVault.exe, рядом с ним лежит vault.pmv. Удаление — удалить папку.
+
+СОБИРАЕМ --onedir, А НЕ --onefile, И ЭТО НЕ ВКУСОВЩИНА
+
+При --onefile получается один exe, который при КАЖДОМ запуске распаковывает
+около 15 МБ библиотек во временную папку (%TEMP%\_MEIxxxxx) и исполняет их
+оттуда. «Программа без подписи запускает код из временной папки» — типовой
+повод для эвристики антивируса, а сам загрузчик --onefile перепредставлен в
+обучающих выборках, потому что им пользуется масса скриптовых зловредов.
+
+При --onedir библиотеки просто лежат в _internal\ и никуда не копируются.
+Ничего не распаковывается, ничего не исполняется из %TEMP%.
+
+Цена решения — программа стала папкой, а не одним файлом. За это мы получаем
+установку без ругани Windows Defender, и обмен того стоит: версия 3.1 ловилась
+как Behavior:Win32/DefenseEvasion.A!ml и удалялась с диска.
 
 Перед сборкой прогоняются автотесты. Если они не проходят, сборка
 останавливается: собирать менеджер паролей с падающими тестами нельзя.
@@ -127,7 +140,9 @@ def build_exe(console=False):
     say("Собираю exe (это займёт минуту)…")
     args = [
         sys.executable, "-m", "PyInstaller",
-        "--noconfirm", "--clean", "--onefile",
+        # --onedir, а не --onefile: см. пояснение в начале файла. Ничего не
+        # распаковывается в %TEMP% и не исполняется оттуда.
+        "--noconfirm", "--clean", "--onedir",
         "--name", "PassVault",
         "--icon", ICON,
         "--version-file", write_version_file(),
@@ -152,18 +167,38 @@ def build_exe(console=False):
     subprocess.check_call(args, cwd=HERE)
 
 
+def folder_size(path):
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
 def finish():
-    exe = os.path.join(DIST, "PassVault.exe")
+    app_dir = os.path.join(DIST, "PassVault")
+    exe = os.path.join(app_dir, "PassVault.exe")
     if not os.path.isfile(exe):
         say("Не нашёл собранный exe — что-то пошло не так.")
         sys.exit(1)
-    setup = os.path.join(DIST, "PassVault-Setup-%s.exe" % __version__)
-    shutil.copy2(exe, setup)
 
-    size = os.path.getsize(exe) / 1024 / 1024
+    # Носить на другие ПК удобнее одним файлом, поэтому папка ещё и
+    # упаковывается. Zip — не установщик: он ничего не делает с системой,
+    # его распаковывает сам проводник Windows.
+    say("Пакую архив…")
+    base = os.path.join(DIST, "PassVault-%s-windows" % __version__)
+    archive = shutil.make_archive(base, "zip", root_dir=DIST, base_dir="PassVault")
+
     say("\nГотово.\n")
-    say("    %s   %.1f МБ   ← установщик, носи на другие ПК" % (setup, size))
-    say("    %s   %.1f МБ   ← само приложение" % (exe, size))
+    say("    %s   %.1f МБ   ← папка с программой"
+        % (app_dir, folder_size(app_dir) / 1024 / 1024))
+    say("    %s   %.1f МБ   ← архив, его и носи на другие ПК"
+        % (archive, os.path.getsize(archive) / 1024 / 1024))
+    say("\nУстановки нет: распаковать папку куда угодно и запустить "
+        "PassVault.exe.\nХранилище vault.pmv ляжет рядом с ним.")
 
 
 def main():
