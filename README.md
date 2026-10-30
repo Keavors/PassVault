@@ -1,3 +1,5 @@
+[English](README.en.md) · Русский
+
 # PassVault
 
 Офлайн-хранилище и генератор паролей для Windows. Один зашифрованный файл `vault.pmv`,
