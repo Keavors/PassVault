@@ -24,7 +24,7 @@ normalize_entry НИЧЕГО не выбрасывает из записи. Ес
 
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import SCHEMA_VERSION
 
@@ -76,7 +76,6 @@ def parse_ts(value):
     sign = 1 if tz[0] == "+" else -1
     digits = tz[1:].replace(":", "")
     offset_min = sign * (int(digits[:2]) * 60 + int(digits[2:]))
-    from datetime import timedelta
     return dt.replace(tzinfo=timezone(timedelta(minutes=offset_min)))
 
 

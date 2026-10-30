@@ -2,6 +2,7 @@
 """Главное окно PassVault."""
 
 import os
+import shutil
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -252,7 +253,6 @@ class App(tk.Tk):
             return
         src = result[1]
         try:
-            import shutil
             os.makedirs(os.path.dirname(self.vault.path), exist_ok=True)
             shutil.copy2(src, self.vault.path)
         except OSError as e:
@@ -855,7 +855,6 @@ class App(tk.Tk):
         if not p:
             return
         try:
-            import shutil
             shutil.copy2(self.vault.path, p)
         except OSError as e:
             messagebox.showerror("Экспорт", "Не удалось сохранить:\n%s" % e, parent=self)

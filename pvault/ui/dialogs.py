@@ -2,6 +2,7 @@
 """Диалоговые окна PassVault."""
 
 import os
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -490,7 +491,6 @@ class RecoveryDialog(Modal):
 
         self.list = ScrollList(frm, height=10, width=76)
         self.list.pack(fill="both", expand=True)
-        import time
         self.list.set_items([
             "%s   ·   %s   ·   %s"
             % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(c.mtime)),

@@ -53,17 +53,6 @@ def config_path():
     return os.path.join(app_dir(), CONFIG_NAME)
 
 
-def writable_dir(path):
-    import tempfile
-    try:
-        os.makedirs(path, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=path, delete=True):
-            pass
-        return True
-    except OSError:
-        return False
-
-
 def legacy_state_dir(vault_path):
     r"""Папка, куда служебные файлы складывала прежняя сборка (%APPDATA%).
 

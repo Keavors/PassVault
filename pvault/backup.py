@@ -36,8 +36,6 @@ import os
 import re
 from datetime import datetime, timedelta
 
-BACKUP_DIRNAME = "backups"
-
 KEEP_RECENT = 12
 KEEP_HOURLY = 24
 KEEP_DAILY = 30

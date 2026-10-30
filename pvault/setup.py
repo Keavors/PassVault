@@ -33,6 +33,7 @@ import sys
 import time
 
 from . import __version__
+from .paths import BACKUP_DIRNAME
 
 APP_NAME = "PassVault"
 EXE_NAME = "PassVault.exe"
@@ -45,7 +46,6 @@ PROGRAM_FILES = (EXE_NAME, EXE_NAME + ".old", EXE_NAME + ".new", "config.json")
 # окне удаления. На само удаление не влияют: там работает белый список выше.
 VAULT_SUFFIXES = (".pmv", ".pmv.prev", ".pmv.lock", ".pmv.att", ".pmv.tmp",
                   ".pmv.bak")
-BACKUP_DIRNAME = "vault_backups"
 
 REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\PassVault"
 

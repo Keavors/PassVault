@@ -17,7 +17,8 @@
 
 import secrets
 
-from .model import CONTENT_FIELDS, MAX_HISTORY, is_newer, ts_sort_key, display_title
+from .model import (CONTENT_FIELDS, MAX_HISTORY, display_title, is_newer,
+                    now_iso, ts_sort_key)
 
 LOCAL = "local"
 INCOMING = "incoming"
@@ -149,7 +150,6 @@ def _merge_history(primary, secondary, dropped_password=None):
                     "changed": h.get("changed") if isinstance(h.get("changed"), str) else ""})
 
     if dropped_password and dropped_password not in seen:
-        from .model import now_iso
         out.insert(0, {"password": dropped_password, "changed": now_iso()})
 
     out.sort(key=lambda h: ts_sort_key(h["changed"]), reverse=True)

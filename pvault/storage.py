@@ -31,7 +31,6 @@ tests/test_storage.py. Именно его отсутствие и стоило 
 
 import os
 import shutil
-import tempfile
 
 from .crypto import MAGIC_V1, MAGIC_V2, VaultError, decrypt_with_key
 from .paths import (BACKUP_DIRNAME, BAK_SUFFIX, VaultPaths, legacy_state_dir)
@@ -354,12 +353,3 @@ class VaultLock:
         self.release()
         return False
 
-
-def writable_dir(path):
-    try:
-        os.makedirs(path, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=path, delete=True):
-            pass
-        return True
-    except OSError:
-        return False
