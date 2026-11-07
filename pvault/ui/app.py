@@ -7,7 +7,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import __version__, config, crypto, model, paths
+from .. import APP_NAME, __version__, config, crypto, model, paths
 from .. import portable, storage, throttle
 from ..session import Vault
 from . import dialogs
@@ -21,7 +21,8 @@ AUTOLOCK_TICK_MS = 10_000
 class App(tk.Tk):
     def __init__(self, vault_path=None):
         super().__init__()
-        self.title("PassVault — офлайн-хранилище паролей")
+        # Заголовок виден на панели задач и в Alt+Tab — там только название.
+        self.title(APP_NAME)
         self.geometry("1040x650")
         self.minsize(860, 520)
         self._set_icon()
@@ -113,7 +114,7 @@ class App(tk.Tk):
         box = ttk.Frame(self, padding=24)
         box.place(relx=0.5, rely=0.42, anchor="center")
 
-        ttk.Label(box, text="PassVault", font=HEAD).grid(row=0, column=0,
+        ttk.Label(box, text=APP_NAME, font=HEAD).grid(row=0, column=0,
                                                           columnspan=2, pady=(0, 4))
         ttk.Label(box, text="Файл: " + self.vault.path, foreground=DIM,
                   wraplength=540).grid(row=1, column=0, columnspan=2, pady=(0, 14))
@@ -204,7 +205,7 @@ class App(tk.Tk):
     def _pick_file(self):
         p = filedialog.askopenfilename(
             title="Файл хранилища", parent=self,
-            filetypes=[("Хранилище PassVault", "*.pmv"), ("Все файлы", "*.*")])
+            filetypes=[("Хранилище", "*.pmv"), ("Все файлы", "*.*")])
         if p:
             self.vault = Vault(p)
             self.show_unlock()
@@ -308,10 +309,10 @@ class App(tk.Tk):
         if not p1:
             return
         if p1 != p2:
-            messagebox.showerror("PassVault", "Пароли не совпадают", parent=self)
+            messagebox.showerror(APP_NAME, "Пароли не совпадают", parent=self)
             return
         if len(p1) < 12 and not messagebox.askyesno(
-                "PassVault",
+                APP_NAME,
                 "Мастер-пароль короче 12 символов — его проще подобрать перебором.\n"
                 "Всё равно использовать?", parent=self):
             return
@@ -321,7 +322,7 @@ class App(tk.Tk):
         except (storage.StorageError, OSError) as e:
             self._busy(False)
             self.vault.close()
-            messagebox.showerror("PassVault", "Не удалось создать хранилище:\n%s" % e,
+            messagebox.showerror(APP_NAME, "Не удалось создать хранилище:\n%s" % e,
                                  parent=self)
             return
         self._busy(False)
@@ -552,13 +553,13 @@ class App(tk.Tk):
         snaps = self.vault.backups.list_snapshots()
         messagebox.showinfo(
             "О программе",
-            "PassVault %s\n\n"
+            "%s %s\n\n"
             "%s\n"
             "AES-256-GCM, %s\n"
             "%s\n\n"
             "Снимков: %d (%s)\n"
             "%s"
-            % (__version__, self.vault.path, self.vault.params.describe(),
+            % (APP_NAME, __version__, self.vault.path, self.vault.params.describe(),
                self.vault.params.describe_container(), len(snaps),
                human_size(self.vault.backups.total_size()), self.vault.paths.backups),
             parent=self)
@@ -851,7 +852,7 @@ class App(tk.Tk):
         p = filedialog.asksaveasfilename(
             title="Сохранить копию хранилища", parent=self, defaultextension=".pmv",
             initialfile="vault.pmv",
-            filetypes=[("Хранилище PassVault", "*.pmv"), ("Все файлы", "*.*")])
+            filetypes=[("Хранилище", "*.pmv"), ("Все файлы", "*.*")])
         if not p:
             return
         try:
@@ -884,7 +885,7 @@ class App(tk.Tk):
     def merge_with_file(self):
         p = filedialog.askopenfilename(
             title="Файл для слияния (например, принесённый с телефона)", parent=self,
-            filetypes=[("Хранилище PassVault", "*.pmv"), ("Все файлы", "*.*")])
+            filetypes=[("Хранилище", "*.pmv"), ("Все файлы", "*.*")])
         if not p:
             return
         data = self._load_foreign_vault(p, "Слияние")

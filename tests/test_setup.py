@@ -30,7 +30,7 @@ from pvault import setup as setuplib
 class InstallTest(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="pvinst-")
-        self.fake_exe = os.path.join(self.root, "PassVault-Setup-3.0.exe")
+        self.fake_exe = os.path.join(self.root, "GemSwap-Setup-3.2.exe")
         with open(self.fake_exe, "wb") as f:
             f.write(b"MZ" + b"\0" * 4096)
 
@@ -67,10 +67,36 @@ class InstallTest(unittest.TestCase):
             self.do_install()
 
     def test_name_decides_installer_or_app(self):
-        """PassVault-Setup.exe ставит, PassVault.exe открывает хранилище."""
+        """GemSwap-Setup.exe ставит, GemSwap.exe открывает хранилище."""
         self.assertTrue(setuplib.looks_like_setup_exe())
-        setuplib.self_path = lambda: os.path.join(self.root, "PassVault.exe")
+        setuplib.self_path = lambda: os.path.join(self.root, setuplib.EXE_NAME)
         self.assertFalse(setuplib.looks_like_setup_exe())
+
+    def test_update_over_old_name_replaces_old_exe_and_keeps_data(self):
+        """Обновление поверх установки под прежним именем.
+
+        Старый PassVault.exe — та же программа, его место занимает новый exe:
+        оставь его — и рядом с новым значком висел бы прежний «PassVault».
+        Хранилище при этом остаётся на месте.
+        """
+        target = self.target()
+        os.makedirs(target)
+        for name in setuplib.LEGACY_EXE_NAMES:
+            with open(os.path.join(target, name), "wb") as f:
+                f.write(b"MZ old")
+        vault = os.path.join(target, "vault.pmv")
+        with open(vault, "wb") as f:
+            f.write(b"PMVAULT2data")
+
+        exe = self.do_install()
+
+        self.assertEqual(os.path.basename(exe), setuplib.EXE_NAME)
+        self.assertTrue(os.path.isfile(exe))
+        for name in setuplib.LEGACY_EXE_NAMES:
+            self.assertFalse(os.path.exists(os.path.join(target, name)),
+                             "старый exe остался рядом с новым")
+        with open(vault, "rb") as f:
+            self.assertEqual(f.read(), b"PMVAULT2data", "ХРАНИЛИЩЕ ИЗМЕНЕНО")
 
     def test_running_from_sources_is_never_the_installer(self):
         """`python passvault.py` обязан открыть хранилище, а не окно установки.
@@ -87,15 +113,15 @@ class InstallTest(unittest.TestCase):
 
     def test_default_dir_is_per_user(self):
         d = setuplib.default_install_dir()
-        self.assertIn("PassVault", d)
+        self.assertIn(setuplib.EXE_STEM, d)
         self.assertNotIn("Program Files", d)
 
     @unittest.skipUnless(sys.platform == "win32", "только Windows")
     def test_default_dir_follows_the_drive_of_the_setup_exe(self):
         """Запущен с D: — предлагаем D:, а не системный диск."""
-        setuplib.self_path = lambda: r"D:\Downloads\PassVault-Setup-3.0.exe"
+        setuplib.self_path = lambda: r"D:\Downloads\GemSwap-Setup-3.2.exe"
         self.assertEqual(setuplib.default_install_dir().upper(),
-                         os.path.join("D:\\", "PassVault").upper())
+                         os.path.join("D:\\", setuplib.EXE_STEM).upper())
 
 
 class NoSuspiciousBehaviourTest(unittest.TestCase):
@@ -266,6 +292,18 @@ class UninstallKeepsUserDataTest(unittest.TestCase):
         self.assertEqual(kept, ["важные заметки.txt"])
         self.assertTrue(os.path.isdir(self.installed))
         self.assertFalse(os.path.isfile(self.exe))
+
+    def test_exe_under_old_name_is_ours(self):
+        """PassVault.exe от прежней версии — файл программы, а не чужой.
+
+        Иначе после обновления удаление считало бы его пользовательским
+        файлом и оставляло папку со старым exe внутри.
+        """
+        for name in setuplib.LEGACY_EXE_NAMES:
+            self.put(name, b"MZ old")
+        _target, kept = self.do_uninstall()
+        self.assertEqual(kept, [])
+        self.assertFalse(os.path.isdir(self.installed))
 
     def test_vault_files_are_recognised(self):
         for name in ("vault.pmv", "vault.pmv.prev", "vault.pmv.lock",

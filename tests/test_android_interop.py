@@ -27,7 +27,7 @@ from pvault.session import DEFAULT_APP_SETTINGS
 # Путь к Android-проекту можно задать переменной PASSVAULT_ANDROID_PROJECT.
 # Раньше он был жёстко вшит и работал ровно на одной машине.
 ANDROID_PROJECT = os.environ.get("PASSVAULT_ANDROID_PROJECT",
-                                 r"D:\AndroidStudioApps\PassVault")
+                                 r"D:\vscode_projects\PassVaultAndroid")
 ANDROID_FILE = os.path.join(ANDROID_PROJECT, "app", "build", "interop",
                             "android_vault.pmv")
 ANDROID_PASSWORD = "тестовая мастер-фраза"

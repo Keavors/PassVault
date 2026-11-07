@@ -5,7 +5,7 @@ import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import __version__, setup as setuplib
+from .. import APP_NAME, EXE_STEM, __version__, setup as setuplib
 from .widgets import DANGER, DIM, GOOD, HEAD
 
 
@@ -14,7 +14,7 @@ class InstallerWindow(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Установка PassVault %s" % __version__)
+        self.title("Установка %s %s" % (APP_NAME, __version__))
         self.resizable(False, False)
         self.result = None
         self._set_icon()
@@ -28,9 +28,8 @@ class InstallerWindow(tk.Tk):
         frm.grid(sticky="nsew")
         frm.columnconfigure(0, weight=1)
 
-        ttk.Label(frm, text="PassVault", font=HEAD).grid(row=0, column=0, sticky="w")
-        ttk.Label(frm, text="Офлайн-хранилище и генератор паролей, версия %s"
-                            % __version__, foreground=DIM
+        ttk.Label(frm, text=APP_NAME, font=HEAD).grid(row=0, column=0, sticky="w")
+        ttk.Label(frm, text="Версия %s" % __version__, foreground=DIM
                   ).grid(row=1, column=0, sticky="w", pady=(0, 14))
 
         existing = setuplib.installed_location()
@@ -90,11 +89,14 @@ class InstallerWindow(tk.Tk):
         self.geometry("+%d+%d" % (max(0, x), max(0, y)))
 
     def _browse(self):
-        d = filedialog.askdirectory(title="Куда установить PassVault",
+        d = filedialog.askdirectory(title="Куда установить " + APP_NAME,
                                     initialdir=self.v_dir.get(), parent=self)
         if d:
-            self.v_dir.set(os.path.join(d, "PassVault")
-                           if os.path.basename(d).lower() != "passvault" else d)
+            # Выбрали папку, где программа уже лежит (в том числе под старым
+            # именем), — ставим прямо туда, а не во вложенную.
+            known = {n.lower() for n in (EXE_STEM,) + setuplib.LEGACY_NAMES}
+            self.v_dir.set(d if os.path.basename(d).lower() in known
+                           else os.path.join(d, EXE_STEM))
 
     def _check_drive(self):
         if setuplib.is_on_system_drive(self.v_dir.get()):
@@ -153,7 +155,7 @@ class UninstallWindow(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Удаление PassVault")
+        self.title("Удаление " + APP_NAME)
         self.resizable(False, False)
         self.confirmed = False
         self.kept = []
@@ -164,7 +166,7 @@ class UninstallWindow(tk.Tk):
         frm = ttk.Frame(self, padding=18)
         frm.grid(sticky="nsew")
 
-        ttk.Label(frm, text="Удалить PassVault?", font=("Segoe UI", 14, "bold")
+        ttk.Label(frm, text="Удалить %s?" % APP_NAME, font=("Segoe UI", 14, "bold")
                   ).grid(row=0, column=0, sticky="w")
         ttk.Label(frm, text=target, foreground=DIM, justify="left", wraplength=460
                   ).grid(row=1, column=0, sticky="w", pady=(8, 0))

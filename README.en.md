@@ -7,7 +7,7 @@ no accounts. There is a companion Android app
 ([PassVaultAndroid](https://github.com/Keavors/PassVaultAndroid)) with the same file format:
 synchronisation is transferring the file and merging with conflict review on either side.
 
-Current version: 3.2. The detailed history of decisions and changes per version is in
+Current version: 3.4. The detailed history of decisions and changes per version is in
 [README_PassVault.txt](README_PassVault.txt) (in Russian).
 
 ## Features
@@ -23,16 +23,26 @@ Current version: 3.2. The detailed history of decisions and changes per version 
 - Auto-lock, clipboard clearing after 30 seconds, growing pause after wrong passwords.
 - The program writes nothing to the user profile: everything lives next to the vault.
 - Networking is disabled at the process level (`pvault/netblock.py`); a system-level guarantee
-  comes from a firewall rule on `PassVault.exe`.
+  comes from a firewall rule on `GemSwap.exe`.
+
+## Disguise
+
+From the outside the app looks like a match-3 puzzle called **Gem Swap**: that is the name of the
+exe (`GemSwap.exe`), the window, the shortcuts and the entry in the installed apps list, and the
+icon is a board of coloured gems. Nothing on the desktop or taskbar says there are passwords
+inside. The name lives in `pvault/__init__.py` (`APP_NAME`, `EXE_STEM`); the icon is drawn by
+`tools/make_icon.py`, which also updates the Android icon (`--android`). Internal names (the
+`pvault` package, `*.pmv` files) are unchanged, so existing vaults open as is, and installing over
+an older version removes the old `PassVault.exe` and "PassVault" shortcuts.
 
 ## Install and run
 
-**Ready installer.** Run `PassVault-Setup-<version>.exe`: no Python needed, no admin rights needed.
+**Ready installer.** Run `GemSwap-Setup-<version>.exe`: no Python needed, no admin rights needed.
 By default it installs on the drive the installer was started from.
 Uninstall via "Settings → Apps"; the vault, rollback and snapshot archive are not deleted.
 
-**Without installing.** Put `PassVault.exe` anywhere and run it. Installer and app are one file,
-distinguished by name: `PassVault-Setup-*.exe` installs, `PassVault.exe` opens the vault.
+**Without installing.** Put `GemSwap.exe` anywhere and run it. Installer and app are one file,
+distinguished by name: `GemSwap-Setup-*.exe` installs, `GemSwap.exe` opens the vault.
 
 **From source.**
 
@@ -41,7 +51,7 @@ pip install cryptography argon2-cffi
 python passvault.py
 ```
 
-Self-check: `python passvault.py --test` (automated tests), `PassVault.exe --selfcheck` (built exe).
+Self-check: `python passvault.py --test` (automated tests), `GemSwap.exe --selfcheck` (built exe).
 
 ## Build
 
@@ -50,7 +60,7 @@ python build.py            # flags: --skip-tests, --clean, --console
 ```
 
 The script installs what is missing (PyInstaller), draws the icon, runs the tests and builds
-`PassVault-Setup-<version>.exe` and `PassVault.exe` into `dist\`. If the tests fail, the build
+`GemSwap-Setup-<version>.exe` and `GemSwap.exe` into `dist\`. If the tests fail, the build
 stops. UPX is disabled on purpose: a compressed unsigned exe triggers antivirus false positives.
 
 ## Where the data lives

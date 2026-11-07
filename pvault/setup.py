@@ -4,7 +4,7 @@ r"""Установка и удаление программы.
 Установщик и приложение — ОДИН И ТОТ ЖЕ exe. Прошлая версия носила рядом с
 приложением ещё и uninstall.exe на 28 мегабайт: отдельная сборка PyInstaller
 ради нескольких строк удаления. Здесь тот же файл умеет и то, и другое, а в
-«Параметры → Приложения» прописывается команда «PassVault.exe --uninstall».
+«Параметры → Приложения» прописывается команда «GemSwap.exe --uninstall».
 
 Ставится под текущего пользователя, права администратора не нужны — и не
 запрашиваются: менеджеру паролей нечего делать с системными папками.
@@ -32,21 +32,27 @@ import subprocess
 import sys
 import time
 
-from . import __version__
+from . import APP_NAME, EXE_STEM, LEGACY_NAMES, __version__
 from .paths import BACKUP_DIRNAME
 
-APP_NAME = "PassVault"
-EXE_NAME = "PassVault.exe"
+EXE_NAME = EXE_STEM + ".exe"
+LEGACY_EXE_NAMES = tuple(name + ".exe" for name in LEGACY_NAMES)
 
 # Всё, что кладёт в папку установщик, и ничего сверх того. Удаление вправе
-# трогать только эти имена: что не клали — то не наше.
-PROGRAM_FILES = (EXE_NAME, EXE_NAME + ".old", EXE_NAME + ".new", "config.json")
+# трогать только эти имена: что не клали — то не наше. Прежние имена exe
+# сюда входят: это та же программа, просто под старым названием.
+PROGRAM_FILES = tuple(name + suffix
+                      for name in (EXE_NAME,) + LEGACY_EXE_NAMES
+                      for suffix in ("", ".old", ".new")) + ("config.json",)
 
 # Признаки пользовательских данных рядом с программой — для предупреждения в
 # окне удаления. На само удаление не влияют: там работает белый список выше.
 VAULT_SUFFIXES = (".pmv", ".pmv.prev", ".pmv.lock", ".pmv.att", ".pmv.tmp",
                   ".pmv.bak")
 
+# Имя раздела реестра пользователю не показывается (в списке программ видно
+# DisplayName), поэтому оно прежнее: новая версия перезаписывает старую запись,
+# а не оставляет рядом вторую.
 REG_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\PassVault"
 
 
@@ -84,7 +90,7 @@ def default_install_dir():
     """
     here = os.path.splitdrive(self_path())[0]
     if here and here.upper() != system_drive():
-        return os.path.join(here + os.sep, APP_NAME)
+        return os.path.join(here + os.sep, EXE_STEM)
 
     # Системный диск — последний вариант. Ищем самый большой несистемный
     # фиксированный диск: менеджеру паролей там спокойнее, а пользователю,
@@ -92,10 +98,10 @@ def default_install_dir():
     # руками при каждой переустановке.
     other = _largest_non_system_drive()
     if other:
-        return os.path.join(other + os.sep, APP_NAME)
+        return os.path.join(other + os.sep, EXE_STEM)
 
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    return os.path.join(base, "Programs", APP_NAME)
+    return os.path.join(base, "Programs", EXE_STEM)
 
 
 def _largest_non_system_drive():
@@ -121,7 +127,7 @@ def _largest_non_system_drive():
 def looks_like_setup_exe():
     """Файл назван установщиком — значит, от него и ждут окна установки.
 
-    Правило одно и без исключений: PassVault-Setup.exe ставит, PassVault.exe
+    Правило одно и без исключений: GemSwap-Setup.exe ставит, GemSwap.exe
     открывает хранилище. Двойной клик по файлу делает ровно то, что обещает имя.
 
     Из исходников — всегда приложение. Без этой проверки self_path() отдавал
@@ -285,19 +291,56 @@ def _write_shortcut(link_path, target, working_dir, description):
         return False
 
 
-def start_menu_link():
+SHORTCUT_DESCRIPTION = "Головоломка «три в ряд»"
+
+
+def start_menu_link(name=APP_NAME):
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
     return os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs",
-                        APP_NAME + ".lnk")
+                        name + ".lnk")
 
 
-def desktop_link():
+def desktop_link(name=APP_NAME):
     home = os.path.expanduser("~")
-    for name in ("Desktop", "Рабочий стол"):
-        d = os.path.join(home, name)
+    for folder in ("Desktop", "Рабочий стол"):
+        d = os.path.join(home, folder)
         if os.path.isdir(d):
-            return os.path.join(d, APP_NAME + ".lnk")
-    return os.path.join(home, "Desktop", APP_NAME + ".lnk")
+            return os.path.join(d, name + ".lnk")
+    return os.path.join(home, "Desktop", name + ".lnk")
+
+
+def _remove_files(paths):
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def remove_legacy(target_dir, start_menu=True, desktop=True):
+    """Убирает следы прежнего названия: старый exe в папке установки и ярлыки.
+
+    Без этого обновление поверх старой версии оставляло рядом с новым значком
+    прежний «PassVault» — и маскировка теряла смысл. Exe под старым именем —
+    это та же программа, его место занимает новый файл; данные не трогаются.
+    """
+    for name in LEGACY_EXE_NAMES:
+        old = os.path.join(target_dir, name)
+        try:
+            os.remove(old)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # Старая копия запущена: удалить нельзя, переименовать можно.
+            # Файл .old уберёт следующая установка или удаление.
+            try:
+                os.replace(old, old + ".old")
+            except OSError:
+                pass
+    if start_menu:
+        _remove_files(start_menu_link(n) for n in LEGACY_NAMES)
+    if desktop:
+        _remove_files(desktop_link(n) for n in LEGACY_NAMES)
 
 
 # ---------------------------------------------------------------------------
@@ -345,10 +388,12 @@ def install(target_dir=None, desktop_shortcut=True, start_menu=True,
         say("Создаю ярлыки")
         if start_menu:
             _make_shortcut(start_menu_link(), target_exe, target_dir,
-                           "Офлайн-хранилище и генератор паролей")
+                           SHORTCUT_DESCRIPTION)
         if desktop_shortcut:
             _make_shortcut(desktop_link(), target_exe, target_dir,
-                           "Офлайн-хранилище и генератор паролей")
+                           SHORTCUT_DESCRIPTION)
+
+    remove_legacy(target_dir, start_menu=start_menu, desktop=desktop_shortcut)
 
     if register:
         say("Регистрирую в списке программ")
@@ -357,10 +402,8 @@ def install(target_dir=None, desktop_shortcut=True, start_menu=True,
     # Отодвинутая при обновлении копия больше не нужна и оставалась в папке
     # навсегда: снести её можно только когда прежний процесс уже завершился,
     # то есть при следующем запуске установщика — вот он и есть.
-    try:
-        os.remove(target_exe + ".old")
-    except OSError:
-        pass
+    _remove_files(os.path.join(target_dir, name + ".old")
+                  for name in (EXE_NAME,) + LEGACY_EXE_NAMES)
 
     say("Готово")
     return target_exe
@@ -452,11 +495,8 @@ def uninstall(progress=None, shortcuts=True, register=True, defer=True):
 
     if shortcuts:
         say("Убираю ярлыки")
-        for link in (start_menu_link(), desktop_link()):
-            try:
-                os.remove(link)
-            except OSError:
-                pass
+        for name in (APP_NAME,) + LEGACY_NAMES:
+            _remove_files((start_menu_link(name), desktop_link(name)))
 
     if register:
         say("Снимаю регистрацию")

@@ -4,7 +4,7 @@ r"""Создаёт эталонный vault.pmv для тестов Android-пр
     python tools\make_android_fixture.py
 
 Файл кладётся в
-    D:\AndroidStudioApps\PassVault\app\src\test\resources\pc_vault.pmv
+    D:\vscode_projects\PassVaultAndroid\app\src\test\resources\pc_vault.pmv
 и читается тестом PcCompatibilityTest.
 
 Зачем это нужно. Расхождение форматов между ПК и телефоном — самый дорогой вид
@@ -27,7 +27,7 @@ from pvault import crypto                    # noqa: E402
 from pvault.generator import DEFAULT_GEN     # noqa: E402
 
 ANDROID_PROJECT = os.environ.get("PASSVAULT_ANDROID_PROJECT",
-                                 r"D:\AndroidStudioApps\PassVault")
+                                 r"D:\vscode_projects\PassVaultAndroid")
 PASSWORD = "тестовая мастер-фраза"
 
 # В тестах медленный KDF ни к чему: проверяется формат контейнера, а не

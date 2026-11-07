@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-r"""Сборка PassVault в один exe.
+r"""Сборка PassVault в один exe (снаружи — «Gem Swap», см. APP_NAME).
 
     python build.py
 
 Что получается в dist\:
 
-    PassVault-Setup-3.0.exe   установщик — его и носи на другие ПК
-    PassVault.exe             тот же файл под именем приложения (переносимый
-                              режим: положи рядом с vault.pmv и запускай)
+    GemSwap-Setup-X.Y.exe   установщик — его и носи на другие ПК
+    GemSwap.exe             тот же файл под именем приложения (переносимый
+                            режим: положи рядом с vault.pmv и запускай)
 
 Установщик и приложение — один и тот же бинарник. Прошлая версия носила рядом
 ещё и uninstall.exe на 28 МБ; здесь удаление живёт в том же файле и
-регистрируется как «PassVault.exe --uninstall».
+регистрируется как «GemSwap.exe --uninstall».
 
 Перед сборкой прогоняются автотесты. Если они не проходят, сборка
 останавливается: собирать менеджер паролей с падающими тестами нельзя.
@@ -30,7 +30,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-from pvault import __version__            # noqa: E402
+from pvault import APP_NAME, EXE_STEM, __version__   # noqa: E402
 
 DIST = os.path.join(HERE, "dist")
 BUILD = os.path.join(HERE, "build")
@@ -86,12 +86,12 @@ VSVersionInfo(
     mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('041904B0', [
-        StringStruct('CompanyName', 'PassVault'),
-        StringStruct('FileDescription', 'PassVault - офлайн-хранилище и генератор паролей'),
+        StringStruct('CompanyName', '%(name)s'),
+        StringStruct('FileDescription', '%(name)s'),
         StringStruct('FileVersion', '%(version)s'),
-        StringStruct('InternalName', 'PassVault'),
-        StringStruct('OriginalFilename', 'PassVault.exe'),
-        StringStruct('ProductName', 'PassVault'),
+        StringStruct('InternalName', '%(stem)s'),
+        StringStruct('OriginalFilename', '%(stem)s.exe'),
+        StringStruct('ProductName', '%(name)s'),
         StringStruct('ProductVersion', '%(version)s')])]),
     VarFileInfo([VarStruct('Translation', [1049, 1200])])])
 """
@@ -105,20 +105,24 @@ def write_version_file():
     подозрительности: у обычных программ эти поля заполнены, у наспех
     собранных зловредов — нет. Само по себе это не спасает, но убирает ещё
     один повод.
+
+    FileDescription показывает «Диспетчер задач» вместо имени процесса,
+    поэтому там только название игры, без слов про пароли.
     """
     parts = [int(x) for x in __version__.split(".")] + [0, 0, 0, 0]
     path = os.path.join(BUILD, "version_info.txt")
     os.makedirs(BUILD, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(VERSION_TEMPLATE % {"tuple": tuple(parts[:4]),
-                                    "version": ".".join(str(p) for p in parts[:4])})
+                                    "version": ".".join(str(p) for p in parts[:4]),
+                                    "name": APP_NAME, "stem": EXE_STEM})
     return path
 
 
 def clean():
     for d in (BUILD, DIST):
         shutil.rmtree(d, ignore_errors=True)
-    spec = os.path.join(HERE, "PassVault.spec")
+    spec = os.path.join(HERE, EXE_STEM + ".spec")
     if os.path.isfile(spec):
         os.remove(spec)
 
@@ -128,7 +132,7 @@ def build_exe(console=False):
     args = [
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onefile",
-        "--name", "PassVault",
+        "--name", EXE_STEM,
         "--icon", ICON,
         "--version-file", write_version_file(),
         "--distpath", DIST,
@@ -153,11 +157,11 @@ def build_exe(console=False):
 
 
 def finish():
-    exe = os.path.join(DIST, "PassVault.exe")
+    exe = os.path.join(DIST, EXE_STEM + ".exe")
     if not os.path.isfile(exe):
         say("Не нашёл собранный exe — что-то пошло не так.")
         sys.exit(1)
-    setup = os.path.join(DIST, "PassVault-Setup-%s.exe" % __version__)
+    setup = os.path.join(DIST, "%s-Setup-%s.exe" % (EXE_STEM, __version__))
     shutil.copy2(exe, setup)
 
     size = os.path.getsize(exe) / 1024 / 1024

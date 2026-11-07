@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from pvault import __version__, netblock          # noqa: E402
+from pvault import APP_NAME, __version__, netblock  # noqa: E402
 
 # Отключаем сетевые функции Python до всего остального: любая попытка выйти в
 # сеть штатным способом упадёт с ошибкой. Это защита в глубину, а не гарантия —
@@ -79,7 +79,7 @@ def run_tests(verbosity=1):
 
 def main(argv):
     if "--version" in argv:
-        _safe_print("PassVault %s" % __version__)
+        _safe_print("%s %s" % (APP_NAME, __version__))
         return 0
     if "--test" in argv:
         return run_tests(verbosity=2 if "-v" in argv else 1)
@@ -109,7 +109,7 @@ def main(argv):
             from tkinter import Tk, messagebox
             root = Tk()
             root.withdraw()
-            title = "Самопроверка PassVault %s" % __version__
+            title = "Самопроверка %s %s" % (APP_NAME, __version__)
             if ok:
                 messagebox.showinfo(title, report + "\n\nВсё в порядке.")
             else:
@@ -123,7 +123,7 @@ def main(argv):
         return 0
 
     # Установщик и приложение — один и тот же файл, различаются только именем:
-    # PassVault-Setup.exe ставит, PassVault.exe открывает хранилище.
+    # GemSwap-Setup.exe ставит, GemSwap.exe открывает хранилище.
     if "--install" in argv or setuplib.looks_like_setup_exe():
         from pvault.ui.setup_ui import run_installer
         run_installer()
